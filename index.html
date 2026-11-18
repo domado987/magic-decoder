@@ -46,6 +46,12 @@
           </label>
         </div>
 
+        <label class="field keys-field">
+          <span>🔑 키 / IV 후보 <small>(선택 · 한 줄에 하나)</small></span>
+          <textarea id="keys" rows="3" spellcheck="false" autocomplete="off" placeholder="키로 짐작되는 값을 넣어 주세요&#10;예) YELLOW SUBMARINE&#10;    0x2b7e151628aed2a6abf7158809cf4f3c"></textarea>
+          <small class="field-help">텍스트 · hex · base64로 해석하고, MD5/SHA-256(키)도 AES 키로 시도합니다. 16바이트 값은 IV로도 씁니다.<br />XOR · AES(ECB/CBC/CTR) · RC4 · Vigenère · Beaufort · Autokey · Playfair · Columnar</small>
+        </label>
+
         <div class="examples">
           <span>예시</span>
           <div id="examples"></div>

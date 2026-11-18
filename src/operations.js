@@ -10,12 +10,16 @@
 //                   그 결과에 strong 디코더가 먹히면 후보로 남긴다.
 //   noRepeat      : 같은 연산을 연달아 적용하지 않음 (ROT13 두 번 = 원본)
 //   needsCrib     : crib(알려진 평문)이 있어야 동작
+//   needsKey      : 사용자가 키 후보를 입력해야 동작 (keyed.js)
+//   accept(a)     : 결과를 남기기 위한 추가 필수 조건 (선택)
+//   notAfter      : 바로 앞 단계가 이 연산들이면 건너뜀 (From Base64 → To Base64 같은 되돌리기 방지)
 //   run(bytes, text, ctx) -> [{ out: Uint8Array, note?: string }] | null   (async 가능)
 //
 // 새 디코더를 추가하려면 OPERATIONS 배열에 객체 하나만 추가하면 된다.
 
 import { utf8Encode, isPrintableByte } from './bytes.js';
 import { scoreBytes, englishScore, cjkScore } from './score.js';
+import { KEYED_OPERATIONS } from './keyed.js';
 
 const te = utf8Encode;
 const one = (out, note) => (out && out.length ? [{ out, note }] : null);
@@ -168,6 +172,15 @@ function fromAscii85(text) {
     out.push(...[v >>> 24, (v >>> 16) & 255, (v >>> 8) & 255, v & 255].slice(0, keep));
   }
   return one(Uint8Array.from(out), wrapped ? '<~ ~>' : '');
+}
+
+/** 바이너리 → Base64 (디코딩이 아니라 "다시 인코딩"하는 방향. 예: Hex 를 바이트로 풀어 Base64 로 표현) */
+function toBase64(bytes) {
+  if (bytes.length < 6 || bytes.length > 65536) return null;
+  if (printableRatio(bytes) > 0.9) return null; // 이미 텍스트면 다시 인코딩할 이유가 없음
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return one(te(btoa(bin)));
 }
 
 // ---------------------------------------------------------------------------
@@ -671,6 +684,12 @@ export const OPERATIONS = [
   { id: 'gunzip', name: 'Gunzip', category: 'compression', strong: true, run: gunzip },
   { id: 'zlib', name: 'Zlib Inflate', category: 'compression', strong: true, run: zlibInflate },
 
+  // 재인코딩: 무작위 Base64 문자열은 늘 '읽을 수 있는 텍스트'라 점수가 오르므로, 자연어/플래그일 때만 인정
+  {
+    id: 'tobase64', name: 'To Base64', category: 'encoding', noRepeat: true, notAfter: ['base64'],
+    accept: (a) => a.lang >= 0.35 || a.flag || a.crib, run: (b) => toBase64(b),
+  },
+
   // 약한 변환 — 점수를 올리거나 strong 디코더의 길을 열 때만 후보로
   { id: 'caesar', name: 'Caesar / ROT-N', category: 'cipher', lookahead: true, noRepeat: true, run: caesarAll },
   { id: 'rot47', name: 'ROT47', category: 'cipher', lookahead: true, noRepeat: true, run: rot47 },
@@ -680,6 +699,9 @@ export const OPERATIONS = [
   { id: 'railfence', name: 'Rail Fence', category: 'cipher', noRepeat: true, run: railFence },
   { id: 'xor1', name: 'XOR (1바이트 키 전수조사)', category: 'xor', noRepeat: true, run: xorSingleByte },
   { id: 'xorcrib', name: 'XOR (crib로 키 역산)', category: 'xor', needsCrib: true, noRepeat: true, run: xorWithCrib },
+
+  // 키 후보를 입력했을 때만 동작
+  ...KEYED_OPERATIONS,
 ];
 
 export const OPERATION_MAP = Object.fromEntries(OPERATIONS.map((o) => [o.id, o]));

@@ -29,13 +29,16 @@ const COMMON_WORDS = new Set(
     'great nice try found easy hard simple this that admin user login code test example the quick brown fox jumps lazy dog attack dawn ' +
     'meet me at noon right left yes not too long short base hex binary ascii rot xor caesar vigenere morse rail fence correct wrong ' +
     'never give gonna let you down run around desert life love home school student university korea korean seoul hack hacker hacking ' +
-    'security system data file read write open close start end begin final last next keep going almost there well done good job')
+    'security system data file read write open close start end begin final last next keep going almost there well done good job ' +
+    'encoding decoding web safe bytes string ascii unicode')
     .split(/\s+/)
 );
 // 띄어쓰기 없는 문자열에서 찾을 단어 (4글자 이상)
 const SUBSTRING_WORDS = [...COMMON_WORDS].filter((w) => w.length >= 4).sort((a, b) => b.length - a.length);
 
 export const FLAG_RE = /(?:^|[^A-Za-z0-9])[A-Za-z][A-Za-z0-9_\-]{1,19}\{[A-Za-z0-9_\-!?@#$%&*+.,:;=~^' ]*[A-Za-z0-9][A-Za-z0-9_\-!?@#$%&*+.,:;=~^' ]*\}/;
+// CryptoHack 입문 문제처럼 crypto/.../ 형식을 쓰는 경우
+export const ALT_FLAG_RE = /(?:^|\s)crypto\/[A-Za-z0-9+_\-]{3,}\/(?:\s|$)/;
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
@@ -103,8 +106,16 @@ export function englishScore(text) {
   const letterRatio = clamp01((wordish / nonSpace - 0.5) / 0.38);
   // 글자 수가 적으면 통계적 신뢰도가 낮다
   const confidence = clamp01(letters / 12);
+  // 단어 안에서 대소문자가 마구 바뀌면(예: NNmsIWEChe) Base64 같은 무작위 문자열
+  let flips = 0;
+  for (let i = 1; i < text.length; i++) {
+    const a = text[i - 1];
+    const b = text[i];
+    if (/[a-z]/.test(a) && /[A-Z]/.test(b)) flips++;
+  }
+  const caseFactor = clamp01(1 - (flips / letters) * 6);
   const stat = (0.25 * freqFit + 0.35 * bigramFit + 0.4 * wordFit) * (0.5 + 0.5 * confidence);
-  return Math.max(stat, wordFit * 0.9) * letterRatio;
+  return Math.max(stat, wordFit * 0.9) * letterRatio * caseFactor;
 }
 
 /** 한글/일본어/한자 비율 0~1 */
@@ -166,7 +177,7 @@ export function scoreBytes(bytes, ctx = {}) {
   // 텍스트가 자연어스럽거나 플래그가 텍스트의 대부분을 차지할 때만 인정
   let flag = false;
   if (printable >= 0.9) {
-    const m = text.match(FLAG_RE);
+    const m = text.match(FLAG_RE) || text.match(ALT_FLAG_RE);
     if (m) {
       const inner = m[0].slice(m[0].indexOf('{') + 1, -1);
       flag = inner.length >= 3 && (lang >= 0.2 || m[0].trim().length >= text.trim().length * 0.6);

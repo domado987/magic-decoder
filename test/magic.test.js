@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import { magic } from '../src/magic.js';
 
 // ---- 테스트 벡터를 만드는 헬퍼 ----
@@ -104,9 +105,79 @@ test('취소(AbortSignal) 시 null 반환', async () => {
 });
 
 test('무작위 바이트로만 풀리는 입력은 Hex/암호문 힌트를 준다', async () => {
-  const res = await magic('72bca9b68fc16ac7beeb8f849dca1d8a783e8acf9679bf9269f7bf');
+  const res = await magic('9f3a71c2e04b88d1576aa3fe2c19b04d7e6158c3a9f20b7d44e1');
   const titles = res.hints.map((h) => h.title).join(' | ');
   assert.match(titles, /Hex\(16진수\)/);
   assert.match(titles, /암호화된 데이터/);
   assert.ok(res.results.some((r) => r.depth === 1 && r.recipe[0].id === 'base64'), 'Base64 한 단계 결과는 있어야 함');
+});
+
+// ---- 재인코딩 / 키 기반 복호화 ----
+
+test('Hex → 바이트 → To Base64 (디코딩 후 다시 인코딩)', async () => {
+  const target = 'Magic+Decoder+turns+hex+into+Base64/';
+  const res = await magic(Buffer.from(target, 'base64').toString('hex'));
+  assert.equal(res.results[0].text, target);
+  assert.deepEqual(res.results[0].recipe.map((s) => s.id), ['hex', 'tobase64']);
+});
+
+test('To Base64 는 무작위 바이너리에 쓰레기 결과를 만들지 않는다', async () => {
+  const res = await magic(crypto.randomBytes(40).toString('hex'));
+  assert.ok(!res.results.some((r) => r.recipe.some((s) => s.id === 'tobase64')));
+});
+
+const aesEnc = (mode, key, iv, pt) => {
+  const c = crypto.createCipheriv(mode, key, iv);
+  return Buffer.concat([c.update(pt), c.final()]);
+};
+const SECRET = 'flag{keyed_ciphers_are_fun}';
+
+const keyed = [
+  ['AES-128-ECB (텍스트 키) + Base64', aesEnc('aes-128-ecb', 'YELLOW SUBMARINE', null, SECRET).toString('base64'), ['YELLOW SUBMARINE'], 'k-aes', /ECB/],
+  ['AES-256-CBC (SHA-256 키, IV 앞붙임) + Hex', (() => {
+    const iv = crypto.randomBytes(16);
+    return Buffer.concat([iv, aesEnc('aes-256-cbc', crypto.createHash('sha256').update('password').digest(), iv, SECRET)]).toString('hex');
+  })(), ['password'], 'k-aes', /SHA-256/],
+  ['AES-128-CBC (MD5 키, IV 따로 입력)', (() => {
+    const iv = Buffer.from('000102030405060708090a0b0c0d0e0f', 'hex');
+    return aesEnc('aes-128-cbc', crypto.createHash('md5').update('hunter2').digest(), iv, SECRET).toString('base64');
+  })(), ['hunter2', '000102030405060708090a0b0c0d0e0f'], 'k-aes', /MD5/],
+  ['AES-128-CTR (hex 키, 카운터 0)', aesEnc('aes-128-ctr', Buffer.from('2b7e151628aed2a6abf7158809cf4f3c', 'hex'), Buffer.alloc(16), SECRET).toString('hex'), ['2b7e151628aed2a6abf7158809cf4f3c'], 'k-aes', /CTR/],
+  ['RC4', (() => {
+    const S = [...Array(256).keys()]; const k = Buffer.from('Secret');
+    for (let i = 0, j = 0; i < 256; i++) { j = (j + S[i] + k[i % k.length]) & 255; [S[i], S[j]] = [S[j], S[i]]; }
+    let i = 0, j = 0;
+    return Buffer.from(SECRET).map((b) => { i = (i + 1) & 255; j = (j + S[i]) & 255; [S[i], S[j]] = [S[j], S[i]]; return b ^ S[(S[i] + S[j]) & 255]; }).toString('hex');
+  })(), ['Secret'], 'k-rc4'],
+  ['반복 키 XOR (키 입력)', xorHex(SECRET, 'xorkey'), ['xorkey'], 'k-xor'],
+  ['Vigenère (키 입력, 짧은 문장)', vigenere('meet me at noon', 'LEMON'), ['lemon'], 'k-poly', /Vigen/],
+  ['Playfair', 'BMODZBXDNABEKUDMUIXMMOUVIF', ['playfair example'], 'k-playfair'],
+];
+
+for (const [name, input, keys, opId, noteRe] of keyed) {
+  test(`키: ${name}`, async () => {
+    const res = await magic(input, { keys });
+    const top = res.results[0];
+    assert.ok(top, '결과 없음');
+    assert.ok(top.recipe.some((s) => s.id === opId), `1위 레시피: ${top.recipe.map((s) => s.name + ' ' + s.note).join(' → ')}`);
+    if (noteRe) assert.match(top.recipe.find((s) => s.id === opId).note, noteRe);
+    const expected = { 'k-playfair': 'HIDETHEGOLDINTHETREXESTUMP', 'k-poly': 'meet me at noon' }[opId] ?? SECRET;
+    assert.equal(top.text, expected);
+  });
+}
+
+test('키: Columnar 전치 (글자 키)', async () => {
+  // ZEBRAS 키로 직접 암호화
+  const pt = 'WEAREDISCOVEREDFLEEATONCE';
+  const key = 'ZEBRAS';
+  const order = [...key].map((c, i) => [c, i]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1])).map((x) => x[1]);
+  const ct = order.map((c) => [...pt].filter((_, i) => i % key.length === c).join('')).join('');
+  const res = await magic(ct, { keys: [key] });
+  assert.equal(res.results[0].text, pt);
+});
+
+test('틀린 키로는 엉뚱한 결과를 높게 매기지 않는다', async () => {
+  const ct = aesEnc('aes-128-ecb', 'YELLOW SUBMARINE', null, SECRET).toString('base64');
+  const res = await magic(ct, { keys: ['WRONG KEY HERE!!', 'nope'] });
+  assert.ok(res.results.every((r) => r.score < 45));
 });

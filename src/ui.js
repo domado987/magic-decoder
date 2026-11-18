@@ -6,6 +6,7 @@ const $ = (sel) => document.querySelector(sel);
 const els = {
   input: $('#input'),
   crib: $('#crib'),
+  keys: $('#keys'),
   depth: $('#depth'),
   results: $('#results'),
   hints: $('#hints'),
@@ -35,6 +36,7 @@ const EXAMPLES = [
     label: 'JWT',
     value: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
   },
+  { label: '🔑 AES (키 필요)', value: 'LMtwCUDJlyPKaKfsrpysEQoW7vcGYeCP3OHv2aLaLhc=', keys: 'YELLOW SUBMARINE' },
   { label: 'Brainfuck', value: '++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.' },
 ];
 
@@ -57,7 +59,7 @@ function h(tag, attrs = {}, ...children) {
   return el;
 }
 
-const FLAG_HIGHLIGHT = /[A-Za-z][A-Za-z0-9_\-]{1,19}\{[^{}\n]{1,300}\}/g;
+const FLAG_HIGHLIGHT = /[A-Za-z][A-Za-z0-9_\-]{1,19}\{[^{}\n]{1,300}\}|crypto\/[A-Za-z0-9+_\-]{3,}\//g;
 
 function highlighted(text, crib, withFlags) {
   const frag = document.createDocumentFragment();
@@ -209,7 +211,7 @@ function render(res) {
   els.banner.replaceChildren(...banners);
 
   // 읽을 수 있는 결과는 없지만 형식상 디코딩은 된 경우: 한 단계 결과를 그대로 보여준다
-  const rawDecodes = results.filter((r) => r.depth === 1).slice(0, 4);
+  const rawDecodes = input.analysis.lang < 0.4 ? results.filter((r) => r.depth === 1).slice(0, 4) : [];
   if (!visible.length && rawDecodes.length) {
     els.banner.replaceChildren(
       ...banners,
@@ -262,6 +264,7 @@ async function run() {
   const res = await magic(value, {
     maxDepth: Number(els.depth.value),
     crib: els.crib.value,
+    keys: els.keys.value,
     signal: controller.signal,
   });
   if (!res) return; // 새 입력으로 취소됨
@@ -294,6 +297,7 @@ function syncHash() {
   const p = new URLSearchParams();
   if (els.input.value && els.input.value.length < 6000) p.set('q', toB64Url(els.input.value));
   if (els.crib.value) p.set('crib', els.crib.value);
+  if (els.keys.value.trim()) p.set('keys', els.keys.value);
   if (els.depth.value !== '4') p.set('depth', els.depth.value);
   const hash = p.toString();
   history.replaceState(null, '', hash ? `#${hash}` : location.pathname + location.search);
@@ -306,6 +310,7 @@ function loadHash() {
     /* 잘못된 해시는 무시 */
   }
   if (p.get('crib')) els.crib.value = p.get('crib');
+  if (p.get('keys')) els.keys.value = p.get('keys');
   if (p.get('depth')) els.depth.value = p.get('depth');
 }
 
@@ -313,7 +318,9 @@ function loadHash() {
 // 초기화
 
 for (const ex of EXAMPLES) {
-  els.examples.append(h('button', { class: 'chip-btn', type: 'button', onclick: () => setInput(ex.value) }, ex.label));
+  els.examples.append(
+    h('button', { class: 'chip-btn', type: 'button', onclick: () => { els.keys.value = ex.keys ?? ''; setInput(ex.value); } }, ex.label)
+  );
 }
 for (const op of OPERATIONS) {
   els.opList.append(h('li', {}, h('span', { class: `chip cat-${op.category}` }, op.name)));
@@ -321,6 +328,7 @@ for (const op of OPERATIONS) {
 
 els.input.addEventListener('input', () => schedule());
 els.crib.addEventListener('input', () => schedule());
+els.keys.addEventListener('input', () => schedule(350));
 els.depth.addEventListener('change', () => schedule(0));
 els.showAll.addEventListener('change', () => lastResult && render(lastResult));
 els.clear.addEventListener('click', () => {

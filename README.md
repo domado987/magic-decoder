@@ -12,6 +12,8 @@
 
 - **서버 없음**: 모든 처리가 브라우저 안에서 이루어지고, 입력은 어디로도 전송되지 않습니다.
 - **연쇄 해석**: `Base64 → Hex → XOR`처럼 여러 단계가 겹쳐 있어도 최대 6단계까지 자동으로 따라갑니다.
+- **재인코딩**: `Hex → 바이트 → Base64`처럼 "풀었다가 다른 형식으로 다시 표현"해야 하는 경우도 찾습니다.
+- **🔑 키 후보 입력**: 키로 짐작되는 값을 넣으면 AES·RC4·XOR·Vigenère·Playfair 등 키가 필요한 암호까지 함께 시도합니다.
 - **점수 매기기**: 결과마다 0~100점의 "그럴듯함" 점수를 매겨 정렬합니다.
 - **한글 지원**: UTF-8 한글/일본어/한자 결과도 자연어로 인식합니다.
 - **공유 링크**: 입력이 URL `#q=...`에 저장되어 링크로 공유할 수 있습니다.
@@ -25,7 +27,9 @@
 | 웹/텍스트 | URL 인코딩, HTML 엔티티, `\x` `\u` `\u{}` 이스케이프, JWT |
 | 고전 암호 | Caesar/ROT-N (전수조사), ROT47, Atbash, A1Z26, Bacon, Rail Fence, **Vigenère (키 자동 추정)** |
 | XOR | 1바이트 키 전수조사, **crib(예: `flag{`)로 반복 키 역산** |
+| 재인코딩 | To Base64 (바이너리를 다시 Base64로. 결과가 문장/플래그일 때만 채택) |
 | 압축 | gzip, zlib |
+| 🔑 키 필요 | 반복 키 XOR, AES-128/192/256 (ECB · CBC · CTR), RC4, Vigenère · Beaufort · Autokey, Playfair, Columnar 전치 |
 | 기타 | 문자열 뒤집기, Brainfuck 실행 |
 | 식별만 | MD5/SHA 계열 해시, bcrypt/sha512crypt 등, PEM, RSA 파라미터, UUID |
 
@@ -44,6 +48,7 @@ npm start          # http://localhost:8080
 > ES 모듈을 쓰기 때문에 `index.html`을 더블클릭(file://)으로 열면 동작하지 않습니다. 위처럼 로컬 서버로 열어 주세요.
 
 - **플래그 형식 / 알려진 평문 (crib)**: `flag{`, `DH{`처럼 평문에 들어 있을 문자열을 넣으면, 그 문자열이 포함된 결과의 점수가 크게 올라갑니다. 반복 키 XOR은 이 값으로 키를 역산합니다.
+- **🔑 키 / IV 후보**: 키로 짐작되는 값을 한 줄에 하나씩 넣습니다. 아래 [키 후보는 어떻게 쓰이나요?](#키-후보는-어떻게-쓰이나요)를 참고하세요.
 - **최대 단계**: 몇 단계까지 연쇄 디코딩할지 정합니다 (기본 4).
 - **이 결과를 입력으로 ↺**: 자동 탐색이 놓친 경우, 중간 결과에서부터 다시 분석할 수 있습니다.
 
@@ -52,6 +57,7 @@ npm start          # http://localhost:8080
 ```bash
 node cli.js "ZmxhZ3t0ZXN0fQ=="
 echo "312b2c25..." | node cli.js --crib "flag{"
+node cli.js -k "YELLOW SUBMARINE" -k "password" "LMtwCUDJ..."   # 키 후보 지정
 node cli.js --json "..."          # JSON 출력
 npm link && magic-decoder "..."    # 전역 명령으로 설치
 ```
@@ -59,6 +65,7 @@ npm link && magic-decoder "..."    # 전역 명령으로 설치
 | 옵션 | 설명 |
 | --- | --- |
 | `-c, --crib <s>` | 플래그 형식 / 알려진 평문 |
+| `-k, --key <s>` | 키/IV 후보 (여러 번 지정 가능) |
 | `-d, --depth <n>` | 최대 연쇄 단계 (기본 4) |
 | `-n, --top <n>` | 출력할 결과 수 (기본 5) |
 | `-a, --all` | 점수가 낮은 결과도 출력 |
@@ -92,6 +99,30 @@ npm link && magic-decoder "..."    # 전역 명령으로 설치
 - **Vigenère**: 키 길이마다 열을 나눠 일치 지수(IoC)를 계산하고, 영어 IoC(≈0.066)에 가까운 가장 짧은 길이를 고릅니다. 그다음 열마다 카이제곱 검정으로 시프트를 정해 키를 복원합니다.
 - **반복 키 XOR**: crib이 평문 맨 앞에 있다고 가정하고 `암호문 ⊕ crib`으로 키스트림을 구한 뒤, 일관된 가장 짧은 주기를 키로 씁니다.
 
+## 키 후보는 어떻게 쓰이나요?
+
+키 문자열 하나를 여러 방식으로 해석해서 모두 시도합니다.
+
+| 키 해석 | 쓰이는 곳 |
+| --- | --- |
+| 텍스트 그대로 (`secret`) | XOR, RC4, 고전 암호 |
+| hex (`0x2b7e15…`, `2b7e15…`) | XOR, RC4, AES |
+| base64 | XOR, RC4, AES |
+| 길이가 16/24/32바이트인 값 | AES-128/192/256 키 |
+| 짧은 텍스트 + 0 패딩 | AES 키 (`key.ljust(16, b"\0")` 같은 코드 대응) |
+| `MD5(키)`, `SHA-256(키)`, `SHA-256(키)[:16]` | AES 키 (비밀번호에서 키를 만드는 흔한 방식) |
+| 16바이트 값 | AES-CBC/CTR의 IV 후보 |
+
+AES는 모드마다 이렇게 시도합니다.
+
+- **ECB**
+- **CBC**: IV=0, IV=암호문 앞 16바이트, 입력한 16바이트 값
+- **CTR**: 카운터 0, nonce=암호문 앞 16바이트, 입력한 16바이트 값
+
+PKCS#7 패딩이 올바르면 자동으로 떼어냅니다. 키 후보 × 해석 × 모드 조합이 많기 때문에, 앞 32바이트만 먼저 풀어 보고 읽을 만할 때만 전체를 풉니다.
+
+키로 풀린 결과도 다른 디코더와 똑같이 연쇄됩니다. 예를 들어 `Base64 → AES → Hex → 평문`처럼요.
+
 ## 디코더 추가하기
 
 `src/operations.js`의 `OPERATIONS` 배열에 객체 하나만 추가하면 됩니다.
@@ -100,9 +131,10 @@ npm link && magic-decoder "..."    # 전역 명령으로 설치
 {
   id: 'rot5',
   name: 'ROT5 (숫자)',
-  category: 'cipher',      // 칩 색깔: encoding | cipher | xor | compression | format | esoteric | transform
+  category: 'cipher',      // 칩 색깔: encoding | cipher | xor | compression | format | esoteric | transform | key
   strong: false,           // 형식이 엄격한 디코더면 true
   noRepeat: true,          // 같은 연산을 연달아 적용하지 않음
+  // needsKey: true,       // 키 후보가 있을 때만 실행 (ctx.keyMaterial 사용, src/keyed.js 참고)
   run(bytes, text, ctx) {  // async 가능
     if (!/\d/.test(text)) return null;
     const out = text.replace(/\d/g, (d) => String((+d + 5) % 10));
@@ -127,7 +159,8 @@ npm test
 
 ## 한계
 
-- 단일 치환 암호(임의 알파벳 치환), Enigma, 현대 암호(AES, RSA 등)는 키 없이 풀 수 없으므로 지원하지 않습니다.
+- 단일 치환 암호(임의 알파벳 치환), Enigma, RSA 등은 지원하지 않습니다. AES 같은 현대 대칭 암호는 키를 알 때만 풀 수 있습니다.
+- AES-GCM, DES/3DES, ChaCha20 등은 아직 없습니다. 필요하면 `src/keyed.js`에 추가할 수 있습니다.
 - 점수는 통계적인 추정이라, 아주 짧은 문자열(몇 글자)에서는 순위가 틀릴 수 있습니다. 이럴 때는 "낮은 점수도 보기"를 켜거나 crib을 넣어 보세요.
 
 ## 라이선스

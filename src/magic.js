@@ -8,6 +8,7 @@ import { OPERATIONS } from './operations.js';
 import { scoreBytes } from './score.js';
 import { utf8Encode, bytesToText, bytesKey } from './bytes.js';
 import { identify } from './identify.js';
+import { deriveKeyMaterial } from './keyed.js';
 
 export const DEFAULTS = {
   maxDepth: 4, // 최대 몇 단계까지 연쇄 디코딩할지
@@ -15,6 +16,7 @@ export const DEFAULTS = {
   timeLimit: 4000, // ms
   maxResults: 40,
   crib: '', // 알려진 평문/플래그 형식 (예: "flag{")
+  keys: [], // 키/IV 후보 문자열들 (예: ["YELLOW SUBMARINE", "0x00112233..."])
   improve: 8, // 약한 변환이 후보로 남으려면 올려야 하는 최소 점수
   maxBytes: 1 << 20,
 };
@@ -40,7 +42,9 @@ function looksRandom(bytes) {
  */
 export async function magic(input, options = {}) {
   const o = { ...DEFAULTS, ...options };
-  const ctx = { crib: (o.crib || '').trim() };
+  const ctx = { crib: (o.crib || '').trim(), keyMaterial: null };
+  const keyList = (Array.isArray(o.keys) ? o.keys : String(o.keys || '').split('\n')).map((k) => k.trim()).filter(Boolean);
+  if (keyList.length) ctx.keyMaterial = await deriveKeyMaterial(keyList);
   const started = Date.now();
   const rootBytes = typeof input === 'string' ? utf8Encode(input) : input;
 
@@ -85,7 +89,9 @@ export async function magic(input, options = {}) {
           break outer;
         }
         if (op.needsCrib && !ctx.crib) continue;
+        if (op.needsKey && !ctx.keyMaterial) continue;
         if (op.noRepeat && last?.id === op.id) continue;
+        if (op.notAfter && last && op.notAfter.includes(last.id)) continue;
 
         let res;
         tried++;
@@ -107,6 +113,7 @@ export async function magic(input, options = {}) {
           if (!keep && op.lookahead && text.length <= 4096) {
             keep = await unlocksStrong(r.out, bytesToText(r.out), Math.max(node.analysis.score, a.score));
           }
+          if (keep && op.accept && !op.accept(a)) keep = false;
           if (!keep) continue;
 
           seen.add(key);
@@ -134,11 +141,19 @@ export async function magic(input, options = {}) {
 
   // 같은 점수면 단계가 짧은 레시피를 우선
   const rank = (n) => n.analysis.score - n.depth * 1.2;
-  results.sort((a, b) => rank(b) - rank(a));
+  results.sort((a, b) => {
+    const d = rank(b) - rank(a);
+    // 점수가 사실상 같으면 더 긴 결과(정보를 덜 잃은 쪽)를 앞에
+    return Math.abs(d) < 0.5 ? b.bytes.length - a.bytes.length : d;
+  });
 
-  const hints = identify(bytesToText(rootBytes));
+  let hints = identify(bytesToText(rootBytes));
   const best = results[0]?.analysis.score ?? 0;
-  if (best < 45) {
+  // Hex 로 이미 잘 풀렸으면 "Hex 일 가능성" 힌트는 군더더기
+  if (best >= 45 && results[0].recipe[0].id === 'hex') hints = hints.filter((h) => !h.title.includes('Hex(16진수)'));
+  const isHash = hints.some((h) => h.title.includes('해시'));
+  const inputIsProse = root.analysis.lang >= 0.4; // 입력 자체가 이미 문장이면 암호문 힌트는 부적절
+  if (best < 45 && !isHash && !inputIsProse) {
     // 형식은 맞아서 풀렸는데 결과가 무작위 바이트처럼 보이면: 키가 필요한 암호문일 가능성
     const randoms = results.filter((n) => n.depth === 1 && !n.analysis.isText && !n.analysis.fileType && looksRandom(n.bytes));
     // 0-9a-f 만 쓰인 입력이면 Hex 쪽 해석을 우선 (위의 Hex 힌트와 일관되게)
@@ -149,7 +164,9 @@ export async function magic(input, options = {}) {
         detail:
           `${randomish.recipe[0].name}(으)로 풀면 ${randomish.bytes.length}바이트가 나오지만, 바이트 분포가 무작위에 가깝습니다. ` +
           '인코딩이 아니라 키가 필요한 암호(AES, RC4, 반복 키 XOR 등)일 가능성이 높아요. ' +
-          '평문 앞부분(예: flag{)을 알면 crib 칸에 넣어 보고, 문제에 키나 암호화 코드가 있다면 그쪽을 먼저 확인하세요.',
+          (ctx.keyMaterial
+            ? '입력한 키 후보로는 풀리지 않았어요. 키 형식(텍스트/hex)이나 암호 방식(모드, IV)을 다시 확인해 보세요.'
+            : '키로 짐작되는 값이 있으면 "키 후보" 칸에 넣어 보세요. 평문 앞부분(예: flag{)을 알면 crib 칸에 넣어도 됩니다.'),
       });
     }
   }
