@@ -1,0 +1,18 @@
+{
+  "name": "magic-decoder",
+  "version": "0.1.0",
+  "description": "문자열을 넣으면 각종 인코딩과 고전 암호를 자동으로 연쇄 해석해 주는 CyberChef Magic 스타일 디코더",
+  "type": "module",
+  "bin": {
+    "magic-decoder": "cli.js"
+  },
+  "scripts": {
+    "start": "node scripts/serve.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["ctf", "decoder", "cipher", "base64", "cyberchef", "magic", "crypto"],
+  "license": "MIT"
+}

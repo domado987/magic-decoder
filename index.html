@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Magic Decoder — 암호·인코딩 자동 해석기</title>
+    <meta name="description" content="문자열을 붙여넣으면 Base64, Hex, ROT13, 모스 부호, XOR, Vigenère 등 각종 인코딩과 고전 암호를 자동으로 연쇄 해석해 그럴듯한 순서로 보여줍니다." />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔮</text></svg>" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">🔮</span>
+        <div>
+          <h1>Magic Decoder</h1>
+          <p>붙여넣기만 하면 인코딩·고전 암호를 자동으로 연쇄 해석합니다</p>
+        </div>
+      </div>
+      <a class="gh-link" href="https://github.com/domado987/magic-decoder" id="repoLink" target="_blank" rel="noopener">GitHub</a>
+    </header>
+
+    <main class="layout">
+      <section class="panel input-panel" aria-label="입력">
+        <div class="panel-head">
+          <label for="input">입력</label>
+          <button type="button" class="ghost small" id="clearBtn">지우기</button>
+        </div>
+        <textarea id="input" spellcheck="false" autocomplete="off" placeholder="여기에 암호문이나 인코딩된 문자열을 붙여넣으세요&#10;예) ZmxhZ3t3ZWxjb21lfQ=="></textarea>
+
+        <div class="options">
+          <label class="field">
+            <span>플래그 형식 / 알려진 평문 <small>(선택)</small></span>
+            <input id="crib" type="text" placeholder="예: flag{  DH{  CTF{" spellcheck="false" />
+          </label>
+          <label class="field narrow">
+            <span>최대 단계</span>
+            <select id="depth">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4" selected>4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="examples">
+          <span>예시</span>
+          <div id="examples"></div>
+        </div>
+
+        <div id="hints"></div>
+
+        <details class="supported">
+          <summary>지원하는 디코더 / 암호</summary>
+          <ul id="opList"></ul>
+        </details>
+      </section>
+
+      <section class="panel results-panel" aria-label="결과" aria-live="polite">
+        <div class="panel-head">
+          <h2>결과</h2>
+          <span id="stats" class="stats"></span>
+          <label class="toggle"><input type="checkbox" id="showAll" /> 낮은 점수도 보기</label>
+        </div>
+        <div id="banner"></div>
+        <div id="results">
+          <p class="empty">왼쪽에 문자열을 입력하면 바로 분석을 시작합니다.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      모든 처리는 브라우저 안에서만 이루어지며, 입력은 어디로도 전송되지 않습니다.
+    </footer>
+
+    <script type="module" src="src/ui.js"></script>
+  </body>
+</html>
