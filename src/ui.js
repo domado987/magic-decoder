@@ -36,6 +36,8 @@ const EXAMPLES = [
     label: 'JWT',
     value: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
   },
+  { label: '단일 치환 (키 몰라도 OK)', value: 'Fq vzp qda eapq ls qfjap, fq vzp qda vlopq ls qfjap, fq vzp qda zca ls vfprlj, fq vzp qda zca ls sllifpdkapp. sizc{kl_hax_kl_moleiaj}' },
+  { label: '반복 키 XOR (키 몰라도 OK)', value: 'ETE2V1FGXy0zZllVSxYbGxQSXF1ZKCdmQVNTRDp4ZlBFRhY3PCMSW1dPYzgjXFdGXmM4I1NbQRY3PDRdRVVeYxwnX11bWCR0IltDRlctNyMcEFRaIjM9Sl9AaTQ9MlpfR0IcIC5Xb1lTOik=' },
   { label: '🔑 AES (키 필요)', value: 'LMtwCUDJlyPKaKfsrpysEQoW7vcGYeCP3OHv2aLaLhc=', keys: 'YELLOW SUBMARINE' },
   { label: 'Brainfuck', value: '++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.' },
 ];

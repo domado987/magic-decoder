@@ -1,8 +1,13 @@
 // "Magic" 탐색 엔진.
 //
-// 입력에서 출발해 모든 디코더를 시도하고, 나온 결과에 다시 디코더를 시도하는 식으로
-// 최대 maxDepth 단계까지 빔 서치(beam search)를 한다. 각 결과는 score.js 로 점수를 매겨
-// "그럴듯한 순서"로 정렬해 돌려준다.
+// 입력에서 출발해 모든 디코더를 시도하고, 나온 결과에 다시 디코더를 시도한다.
+// 단계별로 넓게 훑는 대신 A* 처럼 "지금까지 나온 후보 중 가장 유망한 것"부터 확장한다 (최선 우선 탐색).
+//
+//   우선순위 f = 점수(그럴듯함) + 강한 디코더 보너스 − 단계 수 × 비용
+//
+// 강한 디코더(형식이 엄격히 맞아야 동작)로 나온 결과는 아직 읽을 수 없는 바이너리여도
+// "제대로 된 길"일 가능성이 높으므로 보너스를 준다 (예: Base64 → [gzip 바이너리] → 평문).
+// 확장 횟수(maxExpansions)와 시간 제한 안에서 탐색하고, 모든 결과를 점수순으로 돌려준다.
 
 import { OPERATIONS } from './operations.js';
 import { scoreBytes } from './score.js';
@@ -12,7 +17,9 @@ import { deriveKeyMaterial } from './keyed.js';
 
 export const DEFAULTS = {
   maxDepth: 4, // 최대 몇 단계까지 연쇄 디코딩할지
-  beamWidth: 14, // 단계마다 다음으로 확장할 후보 수
+  maxExpansions: 0, // 확장할 노드 수 상한 (0이면 maxDepth × 14)
+  stepCost: 4, // 우선순위 계산 시 단계 하나당 비용
+  strongBonus: 20, // 강한 디코더로 나온 노드의 우선순위 보너스
   timeLimit: 4000, // ms
   maxResults: 40,
   crib: '', // 알려진 평문/플래그 형식 (예: "flag{")
@@ -51,7 +58,9 @@ export async function magic(input, options = {}) {
   const root = { bytes: rootBytes, recipe: [], analysis: scoreBytes(rootBytes, ctx), depth: 0 };
   const seen = new Set([bytesKey(rootBytes)]);
   const results = [];
-  let frontier = [root];
+  const open = [root]; // 확장 대기 중인 노드들
+  const budget = o.maxExpansions || o.maxDepth * 14;
+  let expansions = 0;
   let tried = 0;
   let truncated = false;
   let lastYield = Date.now();
@@ -59,26 +68,49 @@ export async function magic(input, options = {}) {
   const aborted = () => o.signal?.aborted;
   const timeUp = () => Date.now() - started > o.timeLimit;
 
-  // 약한 변환 결과에 strong 디코더를 한 번 더 걸어보고 점수가 크게 오르면 true
-  async function unlocksStrong(bytes, text, baseline) {
+  // 약한 변환(ROT 등)의 결과에 강한 디코더를 한 번 더 걸어 본다. 이런 경우 true:
+  //   (a) 점수가 크게 오른다 (ROT13 → Base64 → 평문)
+  //   (b) 변환 전에는 바이너리 쓰레기만 나오던 디코더가, 변환 후에는 깨끗한 텍스트를 낸다
+  //       (ROT13 → Base64 → "68656c6c6f…" 처럼 또 다른 인코딩이 나오는 깊은 연쇄)
+  const parentDecodeCache = new Map();
+  async function strongOutputs(op, bytes, text) {
+    try {
+      return (await op.run(bytes, text, ctx)) || [];
+    } catch {
+      return [];
+    }
+  }
+  async function unlocksStrong(bytes, text, baseline, parent, parentText) {
     for (const op of STRONG) {
-      let res;
-      try {
-        res = await op.run(bytes, text, ctx);
-      } catch {
-        continue;
-      }
-      for (const r of res || []) {
-        if (r.out?.length && scoreBytes(r.out, ctx).score > baseline + 10) return true;
+      const res = await strongOutputs(op, bytes, text);
+      for (const r of res) {
+        if (!r.out?.length) continue;
+        const a = scoreBytes(r.out, ctx);
+        if (a.score > baseline + 10) return true;
+        if (a.printable >= 0.97 && r.out.length >= 8) {
+          const cacheKey = `${op.id}:${bytesKey(parent)}`;
+          if (!parentDecodeCache.has(cacheKey)) {
+            const pres = await strongOutputs(op, parent, parentText);
+            parentDecodeCache.set(cacheKey, pres.some((x) => x.out?.length && scoreBytes(x.out, ctx).printable >= 0.97));
+          }
+          if (!parentDecodeCache.get(cacheKey)) return true;
+        }
       }
     }
     return false;
   }
 
-  outer: for (let depth = 1; depth <= o.maxDepth; depth++) {
-    const next = [];
-    for (const node of frontier) {
-      if (node.bytes.length > o.maxBytes) continue;
+  const priority = (n) => n.analysis.score + (n.viaStrong ? o.strongBonus : 0) - n.depth * o.stepCost;
+
+  outer: while (open.length && expansions < budget) {
+    // 가장 유망한 노드 꺼내기 (후보 수가 많지 않아 선형 탐색으로 충분)
+    let bi = 0;
+    for (let i = 1; i < open.length; i++) if (priority(open[i]) > priority(open[bi])) bi = i;
+    const node = open.splice(bi, 1)[0];
+    if (node.depth >= o.maxDepth || node.bytes.length > o.maxBytes) continue;
+    expansions++;
+    const depth = node.depth + 1;
+    {
       const text = bytesToText(node.bytes);
       const last = node.recipe[node.recipe.length - 1];
 
@@ -111,7 +143,7 @@ export async function magic(input, options = {}) {
           let keep = !!op.strong && (!op.gate || op.gate(a));
           if (!keep) keep = a.score >= node.analysis.score + o.improve;
           if (!keep && op.lookahead && text.length <= 4096) {
-            keep = await unlocksStrong(r.out, bytesToText(r.out), Math.max(node.analysis.score, a.score));
+            keep = await unlocksStrong(r.out, bytesToText(r.out), Math.max(node.analysis.score, a.score), node.bytes, text);
           }
           if (keep && op.accept && !op.accept(a)) keep = false;
           if (!keep) continue;
@@ -122,9 +154,10 @@ export async function magic(input, options = {}) {
             recipe: [...node.recipe, { id: op.id, name: op.name, category: op.category, note: r.note || '' }],
             analysis: a,
             depth,
+            viaStrong: !!op.strong,
           };
           results.push(child);
-          next.push(child);
+          open.push(child);
         }
 
         // 브라우저가 멈추지 않도록 가끔 양보
@@ -134,10 +167,8 @@ export async function magic(input, options = {}) {
         }
       }
     }
-    if (!next.length) break;
-    next.sort((a, b) => b.analysis.score - a.analysis.score);
-    frontier = next.slice(0, o.beamWidth);
   }
+  if (open.some((n) => n.depth < o.maxDepth)) truncated = truncated || expansions >= budget;
 
   // 같은 점수면 단계가 짧은 레시피를 우선
   const rank = (n) => n.analysis.score - n.depth * 1.2;

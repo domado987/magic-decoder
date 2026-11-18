@@ -181,3 +181,46 @@ test('틀린 키로는 엉뚱한 결과를 높게 매기지 않는다', async ()
   const res = await magic(ct, { keys: ['WRONG KEY HERE!!', 'nope'] });
   assert.ok(res.results.every((r) => r.score < 45));
 });
+
+// ---- 키 없이 통계로 푸는 솔버 / 깊은 연쇄 ----
+
+test('단일 치환 암호 자동 풀기 (quadgram 힐클라이밍)', async () => {
+  const pt = 'It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity. flag{substitution_solved}';
+  const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const key = 'QWERTYUIOPASDFGHJKLZXCVBNM';
+  const ct = pt.replace(/[a-z]/gi, (c) => { const u = key[alpha.indexOf(c.toUpperCase())]; return c === c.toUpperCase() ? u : u.toLowerCase(); });
+  const res = await magic(ct);
+  assert.equal(res.results[0].recipe[0].id, 'substitution');
+  assert.equal(res.results[0].text, pt);
+});
+
+test('반복 키 XOR 키 자동 추정 (해밍 거리)', async () => {
+  const msg = 'This is a longer secret message encrypted with a repeating key xor. Find the key! flag{hamming_distance_ftw}';
+  const res = await magic(xorHex(msg, 'ICE-BABY'));
+  const top = res.results[0];
+  assert.equal(top.text, msg);
+  assert.match(top.recipe.at(-1).note, /"ICE-BABY"/);
+});
+
+const deepB32 = (s) => {
+  const a = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  let o = '';
+  for (const x of Buffer.from(s)) bits += x.toString(2).padStart(8, '0');
+  for (let i = 0; i < bits.length; i += 5) o += a[parseInt(bits.slice(i, i + 5).padEnd(5, '0'), 2)];
+  return o + '='.repeat((8 - (o.length % 8)) % 8);
+};
+const DEEP = 'flag{deep_chains_need_smart_search}';
+const deepCases = [
+  ['Base64 × 5', b64(b64(b64(b64(b64(DEEP))))), ['base64', 'base64', 'base64', 'base64', 'base64']],
+  ['Hex → Base64 → ROT13 → Base32', deepB32(rot(b64(hex(DEEP)), 13)), ['base32', 'caesar', 'base64', 'hex']],
+  ['gzip → Base64 → Hex → Base64', b64(hex(zlib.gzipSync(DEEP).toString('base64'))), ['base64', 'hex', 'base64', 'gunzip']],
+  ['XOR → Hex → Base64 → Base32', deepB32(b64(Buffer.from(DEEP).map((b) => b ^ 0x5a).toString('hex'))), ['base32', 'base64', 'hex', 'xor1']],
+];
+for (const [name, input, recipe] of deepCases) {
+  test(`깊은 연쇄: ${name}`, async () => {
+    const res = await magic(input, { maxDepth: 6 });
+    assert.equal(res.results[0].text, DEEP);
+    assert.deepEqual(res.results[0].recipe.map((s) => s.id), recipe);
+  });
+}

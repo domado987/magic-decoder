@@ -20,6 +20,7 @@
 import { utf8Encode, isPrintableByte } from './bytes.js';
 import { scoreBytes, englishScore, cjkScore } from './score.js';
 import { KEYED_OPERATIONS } from './keyed.js';
+import { solveSubstitution, solveRepeatingXor } from './solvers.js';
 
 const te = utf8Encode;
 const one = (out, note) => (out && out.length ? [{ out, note }] : null);
@@ -699,6 +700,16 @@ export const OPERATIONS = [
   { id: 'railfence', name: 'Rail Fence', category: 'cipher', noRepeat: true, run: railFence },
   { id: 'xor1', name: 'XOR (1바이트 키 전수조사)', category: 'xor', noRepeat: true, run: xorSingleByte },
   { id: 'xorcrib', name: 'XOR (crib로 키 역산)', category: 'xor', needsCrib: true, noRepeat: true, run: xorWithCrib },
+  {
+    id: 'xorauto', name: 'XOR (반복 키 자동 추정)', category: 'xor', noRepeat: true,
+    run: (b, t, ctx) => solveRepeatingXor(b, t, ctx, looksNatural),
+  },
+  {
+    // 다른 글자 변환 뒤에 또 치환을 푸는 건 의미가 없거나(시저/아트바시도 치환의 일종) 쓰레기 해석을 만든다
+    id: 'substitution', name: '단일 치환 (자동 풀기)', category: 'cipher', noRepeat: true,
+    notAfter: ['caesar', 'rot47', 'atbash', 'railfence', 'vigenere', 'k-poly', 'k-playfair', 'k-columnar', 'reverse'],
+    run: solveSubstitution,
+  },
 
   // 키 후보를 입력했을 때만 동작
   ...KEYED_OPERATIONS,

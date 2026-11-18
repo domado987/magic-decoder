@@ -36,7 +36,7 @@ const COMMON_WORDS = new Set(
 // 띄어쓰기 없는 문자열에서 찾을 단어 (4글자 이상)
 const SUBSTRING_WORDS = [...COMMON_WORDS].filter((w) => w.length >= 4).sort((a, b) => b.length - a.length);
 
-export const FLAG_RE = /(?:^|[^A-Za-z0-9])[A-Za-z][A-Za-z0-9_\-]{1,19}\{[A-Za-z0-9_\-!?@#$%&*+.,:;=~^' ]*[A-Za-z0-9][A-Za-z0-9_\-!?@#$%&*+.,:;=~^' ]*\}/;
+export const FLAG_RE = /(?:^|[^A-Za-z0-9])[A-Za-z][A-Za-z0-9_\-]{1,19}\{[A-Za-z0-9_\-!?@#$%&*+.:;=~^']*[A-Za-z0-9][A-Za-z0-9_\-!?@#$%&*+.:;=~^']*\}/;
 // CryptoHack 입문 문제처럼 crypto/.../ 형식을 쓰는 경우
 export const ALT_FLAG_RE = /(?:^|\s)crypto\/[A-Za-z0-9+_\-]{3,}\/(?:\s|$)/;
 
