@@ -23,6 +23,17 @@ const STRONG = OPERATIONS.filter((o) => o.strong);
 
 const yieldToEventLoop = () => new Promise((r) => setTimeout(r, 0));
 
+/** 섀넌 엔트로피가 길이 대비 최대치에 가까우면 무작위(암호문/압축) 데이터로 본다 */
+function looksRandom(bytes) {
+  const n = bytes.length;
+  if (n < 12) return false;
+  const counts = new Map();
+  for (const b of bytes) counts.set(b, (counts.get(b) || 0) + 1);
+  let h = 0;
+  for (const c of counts.values()) h -= (c / n) * Math.log2(c / n);
+  return h / Math.log2(Math.min(n, 256)) > 0.85;
+}
+
 /**
  * @param {string|Uint8Array} input
  * @param {Partial<typeof DEFAULTS> & {signal?: AbortSignal}} options
@@ -125,9 +136,27 @@ export async function magic(input, options = {}) {
   const rank = (n) => n.analysis.score - n.depth * 1.2;
   results.sort((a, b) => rank(b) - rank(a));
 
+  const hints = identify(bytesToText(rootBytes));
+  const best = results[0]?.analysis.score ?? 0;
+  if (best < 45) {
+    // 형식은 맞아서 풀렸는데 결과가 무작위 바이트처럼 보이면: 키가 필요한 암호문일 가능성
+    const randoms = results.filter((n) => n.depth === 1 && !n.analysis.isText && !n.analysis.fileType && looksRandom(n.bytes));
+    // 0-9a-f 만 쓰인 입력이면 Hex 쪽 해석을 우선 (위의 Hex 힌트와 일관되게)
+    const randomish = randoms.find((n) => n.recipe[0].id === 'hex') ?? randoms[0];
+    if (randomish) {
+      hints.push({
+        title: '암호화된 데이터일 수 있음',
+        detail:
+          `${randomish.recipe[0].name}(으)로 풀면 ${randomish.bytes.length}바이트가 나오지만, 바이트 분포가 무작위에 가깝습니다. ` +
+          '인코딩이 아니라 키가 필요한 암호(AES, RC4, 반복 키 XOR 등)일 가능성이 높아요. ' +
+          '평문 앞부분(예: flag{)을 알면 crib 칸에 넣어 보고, 문제에 키나 암호화 코드가 있다면 그쪽을 먼저 확인하세요.',
+      });
+    }
+  }
+
   return {
     input: root,
-    hints: identify(bytesToText(rootBytes)),
+    hints,
     results: results.slice(0, o.maxResults).map((n) => ({
       bytes: n.bytes,
       text: n.analysis.text,

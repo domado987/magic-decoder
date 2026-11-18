@@ -21,6 +21,13 @@ export function identify(text) {
       title: `${HEX_HASHES[s.length]} 해시일 수 있음`,
       detail: '해시는 단방향이라 "복호화"가 아니라 크래킹(사전 대입/레인보우 테이블) 대상입니다. CrackStation, hashcat, john 등을 써 보세요.',
     });
+  } else if (/^[a-fA-F0-9]+$/.test(s) && s.length >= 16 && s.length % 2 === 0 && /[a-fA-F]/.test(s)) {
+    hints.push({
+      title: 'Base64보다는 Hex(16진수)일 가능성이 높음',
+      detail:
+        `0-9, a-f 만 쓰였습니다. Base64 문자열이라면 64가지 문자 중 16가지만 ${s.length}번 연속으로 나올 확률은 거의 0이라, ` +
+        `실제로는 ${s.length / 2}바이트 데이터를 16진수로 적은 것일 가능성이 큽니다.`,
+    });
   }
   const crypt = [
     [/^\$2[abxy]?\$\d{2}\$[./A-Za-z0-9]{53}$/, 'bcrypt'],

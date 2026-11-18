@@ -102,3 +102,11 @@ test('취소(AbortSignal) 시 null 반환', async () => {
   ac.abort();
   assert.equal(await magic('ZmxhZ3t4fQ==', { signal: ac.signal }), null);
 });
+
+test('무작위 바이트로만 풀리는 입력은 Hex/암호문 힌트를 준다', async () => {
+  const res = await magic('72bca9b68fc16ac7beeb8f849dca1d8a783e8acf9679bf9269f7bf');
+  const titles = res.hints.map((h) => h.title).join(' | ');
+  assert.match(titles, /Hex\(16진수\)/);
+  assert.match(titles, /암호화된 데이터/);
+  assert.ok(res.results.some((r) => r.depth === 1 && r.recipe[0].id === 'base64'), 'Base64 한 단계 결과는 있어야 함');
+});

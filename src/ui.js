@@ -208,6 +208,17 @@ function render(res) {
   }
   els.banner.replaceChildren(...banners);
 
+  // 읽을 수 있는 결과는 없지만 형식상 디코딩은 된 경우: 한 단계 결과를 그대로 보여준다
+  const rawDecodes = results.filter((r) => r.depth === 1).slice(0, 4);
+  if (!visible.length && rawDecodes.length) {
+    els.banner.replaceChildren(
+      ...banners,
+      h('div', { class: 'banner' }, '읽을 수 있는 평문은 찾지 못했어요. 형식상 디코딩은 되므로 그 결과(바이너리)를 아래에 보여 드립니다. 왼쪽 💡 힌트도 확인해 보세요.')
+    );
+    els.results.replaceChildren(...rawDecodes.map((r, i) => renderResult(r, i, crib)));
+    return;
+  }
+
   if (!visible.length) {
     els.results.replaceChildren(
       h(

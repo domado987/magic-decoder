@@ -43,7 +43,9 @@ if (!input) {
 }
 
 const res = await magic(input, { maxDepth: opts.maxDepth, crib: opts.crib, timeLimit: 10000 });
-const list = res.results.filter((r) => opts.all || r.score >= 45).slice(0, opts.top);
+let list = res.results.filter((r) => opts.all || r.score >= 45).slice(0, opts.top);
+// 읽을 수 있는 결과가 없으면, 형식상 디코딩된 한 단계 결과라도 보여준다
+if (!list.length) list = res.results.filter((r) => r.depth === 1).slice(0, opts.top);
 
 if (opts.json) {
   console.log(
